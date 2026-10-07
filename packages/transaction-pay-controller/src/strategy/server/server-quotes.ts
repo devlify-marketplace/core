@@ -37,7 +37,7 @@ import {
 import { reservePostQuoteGas } from '../../utils/post-quote.js';
 import { estimateSourceGas } from '../../utils/quote-gas.js';
 import type { QuoteGasTransaction } from '../../utils/quote-gas.js';
-import { resolveNonAtomicRecipient } from '../../utils/second-leg.js';
+import { resolveQuoteRecipient } from '../../utils/quote-recipient.js';
 import { getTokenFiatRate } from '../../utils/token.js';
 import { getQuotePricing, TradeType } from '../../utils/trade-type.js';
 import { hasServerDepositStep } from './deposit-step.js';
@@ -232,9 +232,13 @@ async function resolveSettledRequest(
   transaction: TransactionMeta,
   messenger: TransactionPayControllerMessenger,
 ): Promise<QuoteRequest> {
-  const recipient =
-    (await resolveNonAtomicRecipient(transaction, quoteRequest, messenger)) ??
-    (transaction.txParams.from as Hex);
+  const recipient = await resolveQuoteRecipient({
+    messenger,
+    request: quoteRequest,
+    secondLeg: quoteRequest.isPostQuote === true,
+    transaction,
+  });
+
 
   return { ...quoteRequest, recipient };
 }

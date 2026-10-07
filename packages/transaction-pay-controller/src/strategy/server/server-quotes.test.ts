@@ -1793,15 +1793,21 @@ describe('server-quotes', () => {
       expect(result[0].requiresSecondLeg).toBe(true);
     });
 
-    it('settles on the payer when the override has no recipient', async () => {
+    it('falls back to the request sender when the override has no recipient', async () => {
       getPaymentOverrideDataMock.mockResolvedValue({ calls: [] });
+
+      const executionAccount =
+        '0xaaaa000000000000000000000000000000000001' as Hex;
 
       await getServerQuotes({
         accountSupports7702: true,
         from: FROM_MOCK,
         messenger,
         requests: [NON_ATOMIC_REQUEST_MOCK],
-        transaction: TRANSACTION_META_MOCK,
+        transaction: {
+          ...TRANSACTION_META_MOCK,
+          txParams: { from: executionAccount },
+        } as TransactionMeta,
       });
 
       expect(fetchServerQuoteMock).toHaveBeenCalledWith(
