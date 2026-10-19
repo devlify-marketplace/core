@@ -6,6 +6,7 @@ import type { Hex } from '@metamask/utils';
 import type { TransactionPayControllerMessenger } from '../types.js';
 import { withChompRecovery } from './chomp.js';
 import { getNetworkClientId } from './provider.js';
+import { resolveQuoteRecipient } from './quote-recipient.js';
 import { resolveNonAtomicRecipient, submitSecondLeg } from './second-leg.js';
 import {
   collectTransactionIds,
@@ -202,6 +203,106 @@ describe('second-leg', () => {
         'TransactionPayController:getPaymentOverrideData',
         expect.objectContaining({ amount: '0' }),
       );
+    });
+  });
+
+  describe('resolveQuoteRecipient', () => {
+    it('prefers the non-atomic recipient when available', async () => {
+      const callMock = jest.fn((action: string) => {
+        if (action === 'TransactionPayController:getState') {
+          return {
+            transactionData: {
+              [TRANSACTION_ID_MOCK]: { tokens: [{ amountHuman: '1.5' }] },
+            },
+          };
+        }
+
+        if (action === 'TransactionPayController:getPaymentOverrideData') {
+          return Promise.resolve({ recipient: OVERRIDE_RECIPIENT_MOCK });
+        }
+
+        throw new Error(`Unexpected action: ${action}`);
+      });
+
+      await expect(
+        resolveQuoteRecipient({
+          messenger: buildMessenger(callMock),
+          request: { atomic: false, from: PAYER_MOCK, isPostQuote: true } as never,
+          transaction: TRANSACTION_MOCK,
+        }),
+      ).resolves.toBe(OVERRIDE_RECIPIENT_MOCK);
+    });
+
+    it('falls back to the explicit request recipient when non-atomic resolution is unavailable', async () => {
+      const callMock = jest.fn((action: string) => {
+        if (action === 'TransactionPayController:getState') {
+          return { transactionData: {} };
+        }
+
+        if (action === 'TransactionPayController:getPaymentOverrideData') {
+          return Promise.resolve({ recipient: undefined });
+        }
+
+        throw new Error(`Unexpected action: ${action}`);
+      });
+
+      await expect(
+        resolveQuoteRecipient({
+          messenger: buildMessenger(callMock),
+          request: {
+            atomic: false,
+            from: PAYER_MOCK,
+            isPostQuote: true,
+            recipient: OVERRIDE_RECIPIENT_MOCK,
+          } as never,
+          transaction: TRANSACTION_MOCK,
+        }),
+      ).resolves.toBe(OVERRIDE_RECIPIENT_MOCK);
+    });
+
+    it('falls back to the transaction sender when secondLeg is false and no request recipient is available', async () => {
+      const callMock = jest.fn((action: string) => {
+        if (action === 'TransactionPayController:getState') {
+          return { transactionData: {} };
+        }
+
+        if (action === 'TransactionPayController:getPaymentOverrideData') {
+          return Promise.resolve({ recipient: undefined });
+        }
+
+        throw new Error(`Unexpected action: ${action}`);
+      });
+
+      await expect(
+        resolveQuoteRecipient({
+          messenger: buildMessenger(callMock),
+          request: { atomic: false, from: PAYER_MOCK, isPostQuote: true } as never,
+          transaction: TRANSACTION_MOCK,
+        }),
+      ).resolves.toBe(FROM_MOCK);
+    });
+
+    it('falls back to the payer when secondLeg is true and no request recipient is available', async () => {
+      const callMock = jest.fn((action: string) => {
+        if (action === 'TransactionPayController:getState') {
+          return { transactionData: {} };
+        }
+
+        if (action === 'TransactionPayController:getPaymentOverrideData') {
+          return Promise.resolve({ recipient: undefined });
+        }
+
+        throw new Error(`Unexpected action: ${action}`);
+      });
+
+      await expect(
+        resolveQuoteRecipient({
+          messenger: buildMessenger(callMock),
+          request: { atomic: false, from: PAYER_MOCK, isPostQuote: true } as never,
+          secondLeg: true,
+          transaction: TRANSACTION_MOCK,
+        }),
+      ).resolves.toBe(PAYER_MOCK);
     });
   });
 

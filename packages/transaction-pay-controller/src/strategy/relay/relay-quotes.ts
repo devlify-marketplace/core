@@ -55,7 +55,7 @@ import {
 import { reservePostQuoteGas } from '../../utils/post-quote.js';
 import { estimateSourceGas } from '../../utils/quote-gas.js';
 import type { QuoteGasTransaction } from '../../utils/quote-gas.js';
-import { resolveNonAtomicRecipient } from '../../utils/second-leg.js';
+import { resolveQuoteRecipient } from '../../utils/quote-recipient.js';
 import {
   getNativeToken,
   getTokenFiatRate,
@@ -255,15 +255,13 @@ async function getSingleQuote(
       isRelayExecuteEnabled(messenger) &&
       isEIP7702Chain(messenger, sourceChainId);
 
-    const nonAtomicRecipient = await resolveNonAtomicRecipient(
-      transaction,
-      request,
+    const recipient = await resolveQuoteRecipient({
       messenger,
-    );
+      request,
+      secondLeg: request.isPostQuote === true,
+      transaction,
+    });
 
-    const effectiveRequest = nonAtomicRecipient
-      ? { ...request, recipient: nonAtomicRecipient }
-      : request;
 
     const body: RelayQuoteRequestDraft = {
       destinationChainId: Number(targetChainId),
@@ -276,12 +274,12 @@ async function getSingleQuote(
             metamask: { executeVersion: 2 },
           }
         : {}),
-      recipient: effectiveRequest.recipient ?? from,
+      recipient,
       slippageTolerance,
       user: from,
     };
 
-    if (effectiveRequest.isPolymarketDepositWallet) {
+    if (request.isPolymarketDepositWallet) {
       const overrides = await getPolymarketDepositWalletOverrides(
         from,
         messenger,
@@ -295,11 +293,11 @@ async function getSingleQuote(
       body.strict = true;
     }
 
-    const isAtomic = effectiveRequest.atomic !== false;
+    const isAtomic = request.atomic !== false;
 
     const processedTransactions = await processTransactions(
       transaction,
-      effectiveRequest,
+      request,
       body,
       messenger,
     );
@@ -307,20 +305,15 @@ async function getSingleQuote(
     if (
       !processedTransactions &&
       isAtomic &&
-      effectiveRequest.isPostQuote &&
-      effectiveRequest.paymentOverride === PaymentOverride.MoneyAccount
+      request.isPostQuote &&
+      request.paymentOverride === PaymentOverride.MoneyAccount
     ) {
-      await processMoneyAccountPostQuote(
-        transaction,
-        effectiveRequest,
-        body,
-        messenger,
-      );
-    } else if (!processedTransactions && effectiveRequest.refundTo) {
+      await processMoneyAccountPostQuote(transaction, request, body, messenger);
+    } else if (!processedTransactions && request.refundTo) {
       // For post-quote flows, honour the caller-specified refund address so that
       // failed Relay transactions refund to the correct account (e.g. the Predict
       // Safe proxy) rather than defaulting to the EOA.
-      body.refundTo = effectiveRequest.refundTo;
+      body.refundTo = request.refundTo;
     }
 
     const pricing = getQuotePricing({
@@ -344,7 +337,7 @@ async function getSingleQuote(
 
     log('Fetched relay quote', quote);
 
-    return await normalizeQuote(quote, effectiveRequest, fullRequest);
+    return await normalizeQuote(quote, request, fullRequest);
   } catch (error) {
     log('Error fetching relay quote', error);
     throw error;
