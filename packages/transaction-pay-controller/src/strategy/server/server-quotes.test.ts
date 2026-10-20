@@ -319,7 +319,7 @@ describe('server-quotes', () => {
   });
 
   it.each([undefined, TOKEN_TRANSFER_RECIPIENT_MOCK])(
-    'uses the explicit recipient (%s) or execution account for atomic deposits',
+    'funds the execution account for atomic deposits regardless of request recipient (%s)',
     async (recipient) => {
       const MONEY_ACCOUNT_MOCK =
         '0xaaaa000000000000000000000000000000000001' as Hex;
@@ -338,21 +338,20 @@ describe('server-quotes', () => {
       expect(fetchServerQuoteMock).toHaveBeenCalledWith(
         messenger,
         expect.objectContaining({
-          recipient: recipient ?? MONEY_ACCOUNT_MOCK,
+          recipient: MONEY_ACCOUNT_MOCK,
           sender: FROM_MOCK,
         }),
         undefined,
       );
 
-      // Even with an explicit payout recipient, the embedded transfer funds
-      // the account that executes the delegated calls.
+      // The embedded transfer funds the same account as the quote recipient.
       expect(fetchServerQuoteMock.mock.calls[0][1].calls?.[0]).toStrictEqual({
         data: '0xa9059cbb000000000000000000000000aaaa000000000000000000000000000000000001000000000000000000000000000000000000000000000000000000000000007b',
         to: TARGET_TOKEN_ADDRESS_MOCK,
         value: '0x0',
       });
 
-      expect(result[0].request.recipient).toBe(recipient ?? MONEY_ACCOUNT_MOCK);
+      expect(result[0].request.recipient).toBe(MONEY_ACCOUNT_MOCK);
       expect(result[0].requiresSecondLeg).toBe(false);
     },
   );

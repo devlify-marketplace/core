@@ -15,28 +15,23 @@ import { getPostQuotePaymentOverrideData } from './post-quote-payment-override.j
  * Deposits default to the original transaction's execution account.
  *
  * @param options - Recipient resolution options.
- * @param options.deferredExecution - Whether to fund the execution account for
- * calls that will or may run after quote settlement.
  * @param options.messenger - Controller messenger.
  * @param options.request - Quote request.
  * @param options.transaction - Original transaction metadata.
  * @returns The recipient to use for the quote body.
  */
 export async function resolveQuoteRecipient({
-  deferredExecution = false,
   messenger,
   request,
   transaction,
 }: {
-  deferredExecution?: boolean;
   messenger: TransactionPayControllerMessenger;
   request: QuoteRequest;
   transaction: TransactionMeta;
 }): Promise<Hex> {
   const executionAccount = transaction.txParams.from as Hex;
-  const requiresExecution = request.atomic === false || deferredExecution;
 
-  if (requiresExecution && request.isPostQuote) {
+  if (request.atomic === false && request.isPostQuote) {
     // The client identifies the account executing target-side override calls.
     const { recipient } = await getPostQuotePaymentOverrideData({
       messenger,
@@ -46,7 +41,7 @@ export async function resolveQuoteRecipient({
     return recipient;
   }
 
-  if (requiresExecution) {
+  if (request.atomic === false) {
     // Fund the original execution account before submitting its second leg.
     return executionAccount;
   }

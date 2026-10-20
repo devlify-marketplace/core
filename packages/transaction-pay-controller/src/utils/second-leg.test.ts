@@ -243,23 +243,19 @@ describe('second-leg', () => {
       ).toBe(FROM_MOCK);
     });
 
-    it.each([false, true])(
-      'resolves deferred execution funding (%s) without a caller-selected default',
-      async (deferredExecution) => {
-        expect(
-          await resolveQuoteRecipient({
-            deferredExecution,
-            messenger: buildMessenger(),
-            request: {
-              atomic: true,
-              from: PAYER_MOCK,
-              recipient: OVERRIDE_RECIPIENT_MOCK,
-            } as never,
-            transaction: TRANSACTION_MOCK,
-          }),
-        ).toBe(deferredExecution ? FROM_MOCK : OVERRIDE_RECIPIENT_MOCK);
-      },
-    );
+    it('preserves an explicit recipient for atomic quotes', async () => {
+      expect(
+        await resolveQuoteRecipient({
+          messenger: buildMessenger(),
+          request: {
+            atomic: true,
+            from: PAYER_MOCK,
+            recipient: OVERRIDE_RECIPIENT_MOCK,
+          } as never,
+          transaction: TRANSACTION_MOCK,
+        }),
+      ).toBe(OVERRIDE_RECIPIENT_MOCK);
+    });
   });
 
   describe('submitSecondLeg', () => {

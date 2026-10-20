@@ -249,38 +249,16 @@ async function buildServerQuoteRequest(
       ? decodeTransferRecipient(singleData)
       : undefined;
 
-  const deferredExecution =
-    !isPostQuote &&
-    !isHypercore &&
-    sourceChainId !== CHAIN_ID_HYPERCORE &&
-    Boolean(transaction.nestedTransactions?.length) &&
-    Boolean(
-      singleData &&
-      singleData !== '0x' &&
-      !singleData.startsWith(TOKEN_TRANSFER_FOUR_BYTE),
-    ) &&
-    (isMaxAmount === true ||
-      isPolymarketDepositWallet === true ||
-      canDeferCalls({
-        accountSupports7702,
-        messenger,
-        targetChainId,
-        transaction,
-      }));
   const override = await processPostQuotePaymentOverride({
     messenger,
     request: normalizedRequest,
     transaction,
   });
   const recipient = await resolveQuoteRecipient({
-    deferredExecution,
     messenger,
     request: {
       ...normalizedRequest,
-      recipient:
-        override?.recipient ??
-        tokenTransferRecipient ??
-        normalizedRequest.recipient,
+      recipient: override?.recipient ?? tokenTransferRecipient,
     },
     transaction,
   });
