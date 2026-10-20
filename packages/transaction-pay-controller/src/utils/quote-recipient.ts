@@ -38,10 +38,39 @@ export async function resolveQuoteRecipient({
     messenger,
   );
 
-  const fallbackRecipient = secondLeg
-    ? (request.from as Hex | undefined) ??
-      (transaction.txParams.from as Hex | undefined)
-    : (transaction.txParams.from as Hex | undefined) ?? (request.from as Hex);
+  if (nonAtomicRecipient) {
+    return nonAtomicRecipient;
+  }
 
-  return nonAtomicRecipient ?? request.recipient ?? fallbackRecipient;
+  if (request.recipient) {
+    return request.recipient;
+  }
+
+  return resolveFallbackRecipient({ request, secondLeg, transaction });
+}
+
+/**
+ * Resolve the fallback recipient when no explicit recipient is available.
+ *
+ * First-leg quotes settle on the transaction sender, while second-leg quotes
+ * settle on the payer that will submit the follow-up transaction.
+ */
+function resolveFallbackRecipient({
+  request,
+  secondLeg,
+  transaction,
+}: {
+  request: QuoteRequest;
+  secondLeg: boolean;
+  transaction: TransactionMeta;
+}): Hex {
+  if (secondLeg) {
+    return (
+      (request.from as Hex | undefined) ?? (transaction.txParams.from as Hex)
+    );
+  }
+
+  return (
+    (transaction.txParams.from as Hex | undefined) ?? (request.from as Hex)
+  );
 }
