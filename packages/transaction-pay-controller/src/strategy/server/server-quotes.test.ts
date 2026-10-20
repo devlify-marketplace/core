@@ -1315,7 +1315,13 @@ describe('server-quotes', () => {
         accountSupports7702: true,
         from: FROM_MOCK,
         messenger,
-        requests: [{ ...QUOTE_REQUEST_MOCK, isMaxAmount: true }],
+        requests: [
+          {
+            ...QUOTE_REQUEST_MOCK,
+            isMaxAmount: true,
+            recipient: TOKEN_TRANSFER_RECIPIENT_MOCK,
+          },
+        ],
         transaction: {
           ...CONTRACT_CALL_TRANSACTION_MOCK,
           txParams: { from: OVERRIDE_RECIPIENT_MOCK },
@@ -1556,34 +1562,9 @@ describe('server-quotes', () => {
       isEIP7702ChainMock.mockReturnValue(true);
     });
 
-    it.each([
-      {
-        callsDeferred: false,
-        expectedRecipient: OVERRIDE_RECIPIENT_MOCK,
-        recipient: undefined,
-        requote: false,
-      },
-      {
-        callsDeferred: false,
-        expectedRecipient: TOKEN_TRANSFER_RECIPIENT_MOCK,
-        recipient: TOKEN_TRANSFER_RECIPIENT_MOCK,
-        requote: false,
-      },
-      {
-        callsDeferred: true,
-        expectedRecipient: OVERRIDE_RECIPIENT_MOCK,
-        recipient: undefined,
-        requote: false,
-      },
-      {
-        callsDeferred: true,
-        expectedRecipient: OVERRIDE_RECIPIENT_MOCK,
-        recipient: TOKEN_TRANSFER_RECIPIENT_MOCK,
-        requote: true,
-      },
-    ])(
-      'only re-quotes execution funding when the provider defers calls: %j',
-      async ({ callsDeferred, expectedRecipient, recipient, requote }) => {
+    it.each([false, true])(
+      'funds the execution account before quoting and uses the provider deferred-execution result (%s)',
+      async (callsDeferred) => {
         fetchServerQuoteMock.mockResolvedValueOnce({
           results: [
             {
@@ -1592,124 +1573,37 @@ describe('server-quotes', () => {
             },
           ],
         });
-        fetchServerQuoteMock.mockResolvedValueOnce({
-          results: [
-            {
-              ...FULFILLED_RESULT_MOCK,
-              quote: {
-                ...FULFILLED_RESULT_MOCK.quote,
-                callsDeferred,
-                id: 'deferred-quote-id',
-              },
-            },
-          ],
-        });
-
-        const result = await getServerQuotes({
-          accountSupports7702: true,
-          from: FROM_MOCK,
-          messenger,
-          requests: [{ ...QUOTE_REQUEST_MOCK, recipient }],
-          transaction: SPONSORED_TRANSACTION_MOCK,
-        });
-
-        expect(fetchServerQuoteMock).toHaveBeenNthCalledWith(
-          1,
-          messenger,
-          expect.objectContaining({
-            recipient: recipient ?? OVERRIDE_RECIPIENT_MOCK,
-            sender: FROM_MOCK,
-            supportsDeferredCalls: true,
-          }),
-          undefined,
-        );
-        expect(fetchServerQuoteMock).toHaveBeenCalledTimes(requote ? 2 : 1);
-        expect(fetchServerQuoteMock).toHaveBeenLastCalledWith(
-          messenger,
-          expect.objectContaining({
-            ...(requote ? { providers: [FULFILLED_RESULT_MOCK.provider] } : {}),
-            recipient: expectedRecipient,
-          }),
-          undefined,
-        );
-        expect(result[0].original.id).toBe(
-          requote ? 'deferred-quote-id' : 'quote-id',
-        );
-        expect(result[0].request.recipient).toBe(expectedRecipient);
-        expect(result[0].requiresSecondLeg).toBe(callsDeferred);
-      },
-    );
-
-    it('does not re-quote deferred calls when the payout account already executes them', async () => {
-      fetchServerQuoteMock.mockResolvedValue({
-        results: [
-          {
-            ...FULFILLED_RESULT_MOCK,
-            quote: { ...FULFILLED_RESULT_MOCK.quote, callsDeferred: true },
-          },
-        ],
-      });
-
-      const result = await getServerQuotes({
-        accountSupports7702: true,
-        from: FROM_MOCK,
-        messenger,
-        requests: [
-          { ...QUOTE_REQUEST_MOCK, recipient: OVERRIDE_RECIPIENT_MOCK },
-        ],
-        transaction: SPONSORED_TRANSACTION_MOCK,
-      });
-
-      expect(fetchServerQuoteMock).toHaveBeenCalledTimes(1);
-      expect(result[0].request.recipient).toBe(OVERRIDE_RECIPIENT_MOCK);
-      expect(result[0].requiresSecondLeg).toBe(true);
-    });
-
-    it.each(['error', 'missing provider', 'atomic result'])(
-      'keeps other providers when the deferred re-quote fails: %s',
-      async (failure) => {
-        fetchServerQuoteMock.mockResolvedValueOnce({
-          results: [
-            FULFILLED_RESULT_MOCK,
-            {
-              ...FULFILLED_RESULT_MOCK,
-              provider: 'across',
-              quote: { ...FULFILLED_RESULT_MOCK.quote, callsDeferred: true },
-            },
-          ],
-        });
-        if (failure === 'error') {
-          fetchServerQuoteMock.mockRejectedValueOnce(
-            new Error('re-quote failed'),
-          );
-        } else {
-          fetchServerQuoteMock.mockResolvedValueOnce({
-            results: [
-              {
-                ...FULFILLED_RESULT_MOCK,
-                provider: failure === 'missing provider' ? 'other' : 'across',
-              },
-            ],
-          });
-        }
-
         const result = await getServerQuotes({
           accountSupports7702: true,
           from: FROM_MOCK,
           messenger,
           requests: [
-            { ...QUOTE_REQUEST_MOCK, recipient: TOKEN_TRANSFER_RECIPIENT_MOCK },
+            {
+              ...QUOTE_REQUEST_MOCK,
+              atomic: true,
+              recipient: TOKEN_TRANSFER_RECIPIENT_MOCK,
+            },
           ],
           transaction: SPONSORED_TRANSACTION_MOCK,
         });
 
-        expect(fetchServerQuoteMock).toHaveBeenCalledTimes(2);
-        expect(result).toHaveLength(1);
-        expect(result[0].original.provider).toBe(
-          FULFILLED_RESULT_MOCK.provider,
+        expect(fetchServerQuoteMock).toHaveBeenCalledTimes(1);
+        expect(fetchServerQuoteMock).toHaveBeenCalledWith(
+          messenger,
+          expect.objectContaining({
+            recipient: OVERRIDE_RECIPIENT_MOCK,
+            sender: FROM_MOCK,
+            supportsDeferredCalls: true,
+          }),
+          undefined,
         );
-        expect(result[0].request.recipient).toBe(TOKEN_TRANSFER_RECIPIENT_MOCK);
-        expect(result[0].requiresSecondLeg).toBe(false);
+        expect(isEIP7702ChainMock).toHaveBeenCalledWith(
+          messenger,
+          QUOTE_REQUEST_MOCK.targetChainId,
+        );
+        expect(result[0].original.id).toBe('quote-id');
+        expect(result[0].request.recipient).toBe(OVERRIDE_RECIPIENT_MOCK);
+        expect(result[0].requiresSecondLeg).toBe(callsDeferred);
       },
     );
 

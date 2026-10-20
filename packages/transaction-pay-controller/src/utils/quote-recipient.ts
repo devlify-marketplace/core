@@ -15,7 +15,8 @@ import { getPostQuotePaymentOverrideData } from './post-quote-payment-override.j
  * Deposits default to the original transaction's execution account.
  *
  * @param options - Recipient resolution options.
- * @param options.deferredExecution - Whether calls will run after quote settlement.
+ * @param options.deferredExecution - Whether to fund the execution account for
+ * calls that will or may run after quote settlement.
  * @param options.messenger - Controller messenger.
  * @param options.request - Quote request.
  * @param options.transaction - Original transaction metadata.

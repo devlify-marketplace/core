@@ -244,7 +244,7 @@ describe('second-leg', () => {
     });
 
     it.each([false, true])(
-      'resolves provider-confirmed deferred execution (%s) without a caller-selected default',
+      'resolves deferred execution funding (%s) without a caller-selected default',
       async (deferredExecution) => {
         expect(
           await resolveQuoteRecipient({
