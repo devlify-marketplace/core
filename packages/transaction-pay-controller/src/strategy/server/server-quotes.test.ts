@@ -1150,6 +1150,7 @@ describe('server-quotes', () => {
         }),
         undefined,
       );
+      expect(getPaymentOverrideDataMock).toHaveBeenCalledTimes(1);
     });
 
     it('rejects the quote when the override returns no recipient', async () => {
@@ -1888,6 +1889,7 @@ describe('server-quotes', () => {
       );
       expect(result[0].request.recipient).toBe(OVERRIDE_RECIPIENT_MOCK);
       expect(result[0].requiresSecondLeg).toBe(true);
+      expect(getPaymentOverrideDataMock).toHaveBeenCalledTimes(1);
     });
 
     it('rejects the quote when the override has no recipient', async () => {

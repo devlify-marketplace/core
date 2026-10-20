@@ -6,7 +6,6 @@ import type { Hex } from '@metamask/utils';
 import type { TransactionPayControllerMessenger } from '../types.js';
 import { withChompRecovery } from './chomp.js';
 import { getNetworkClientId } from './provider.js';
-import { resolveQuoteRecipient } from './quote-recipient.js';
 import { submitSecondLeg } from './second-leg.js';
 import {
   collectTransactionIds,
@@ -28,9 +27,6 @@ const TOKEN_MOCK = '0x2222222222222222222222222222222222222222' as Hex;
 const SETTLEMENT_HASH_MOCK = '0xsettlement' as Hex;
 const NETWORK_CLIENT_ID_MOCK = 'network-client-id-mock';
 const AMOUNT_MOCK = '5000000';
-const PAYER_MOCK = '0x3333333333333333333333333333333333333333' as Hex;
-const OVERRIDE_RECIPIENT_MOCK =
-  '0x4444444444444444444444444444444444444444' as Hex;
 
 const TRANSACTION_MOCK = {
   id: TRANSACTION_ID_MOCK,
@@ -117,145 +113,6 @@ describe('second-leg', () => {
     });
 
     waitForTransactionConfirmedMock.mockResolvedValue();
-  });
-
-  describe('resolveQuoteRecipient', () => {
-    it('prefers the non-atomic recipient when available', async () => {
-      const callMock = jest.fn((action: string) => {
-        if (action === 'TransactionPayController:getState') {
-          return {
-            transactionData: {
-              [TRANSACTION_ID_MOCK]: { tokens: [{ amountHuman: '1.5' }] },
-            },
-          };
-        }
-
-        if (action === 'TransactionPayController:getPaymentOverrideData') {
-          return Promise.resolve({ recipient: OVERRIDE_RECIPIENT_MOCK });
-        }
-
-        throw new Error(`Unexpected action: ${action}`);
-      });
-
-      expect(
-        await resolveQuoteRecipient({
-          messenger: buildMessenger(callMock),
-          request: {
-            atomic: false,
-            from: PAYER_MOCK,
-            isPostQuote: true,
-          } as never,
-          transaction: TRANSACTION_MOCK,
-        }),
-      ).toBe(OVERRIDE_RECIPIENT_MOCK);
-    });
-
-    it('rejects a missing override recipient even when the request has a recipient', async () => {
-      const callMock = jest.fn((action: string) => {
-        if (action === 'TransactionPayController:getState') {
-          return { transactionData: {} };
-        }
-
-        if (action === 'TransactionPayController:getPaymentOverrideData') {
-          return Promise.resolve({ recipient: undefined });
-        }
-
-        throw new Error(`Unexpected action: ${action}`);
-      });
-
-      await expect(
-        resolveQuoteRecipient({
-          messenger: buildMessenger(callMock),
-          request: {
-            atomic: false,
-            from: PAYER_MOCK,
-            isPostQuote: true,
-            recipient: OVERRIDE_RECIPIENT_MOCK,
-          } as never,
-          transaction: TRANSACTION_MOCK,
-        }),
-      ).rejects.toThrow('Missing post-quote payment override recipient');
-    });
-
-    it('defaults atomic deposits to the original execution account', async () => {
-      const callMock = jest.fn();
-
-      expect(
-        await resolveQuoteRecipient({
-          messenger: buildMessenger(callMock),
-          request: { atomic: true, from: PAYER_MOCK } as never,
-          transaction: TRANSACTION_MOCK,
-        }),
-      ).toBe(FROM_MOCK);
-      expect(callMock).not.toHaveBeenCalled();
-    });
-
-    it('rejects a missing override recipient instead of paying the transaction sender', async () => {
-      const callMock = jest.fn((action: string) => {
-        if (action === 'TransactionPayController:getState') {
-          return { transactionData: {} };
-        }
-
-        if (action === 'TransactionPayController:getPaymentOverrideData') {
-          return Promise.resolve({ recipient: undefined });
-        }
-
-        throw new Error(`Unexpected action: ${action}`);
-      });
-
-      await expect(
-        resolveQuoteRecipient({
-          messenger: buildMessenger(callMock),
-          request: {
-            atomic: false,
-            from: PAYER_MOCK,
-            isPostQuote: true,
-          } as never,
-          transaction: TRANSACTION_MOCK,
-        }),
-      ).rejects.toThrow('Missing post-quote payment override recipient');
-    });
-
-    it('preserves the selected receiving account for ordinary post-quote withdrawals', async () => {
-      const callMock = jest.fn();
-
-      expect(
-        await resolveQuoteRecipient({
-          messenger: buildMessenger(callMock),
-          request: { from: PAYER_MOCK, isPostQuote: true } as never,
-          transaction: TRANSACTION_MOCK,
-        }),
-      ).toBe(PAYER_MOCK);
-      expect(callMock).not.toHaveBeenCalled();
-    });
-
-    it('funds the original execution account before a non-atomic second leg', async () => {
-      expect(
-        await resolveQuoteRecipient({
-          messenger: buildMessenger(),
-          request: {
-            atomic: false,
-            from: PAYER_MOCK,
-            recipient: OVERRIDE_RECIPIENT_MOCK,
-          } as never,
-          transaction: TRANSACTION_MOCK,
-        }),
-      ).toBe(FROM_MOCK);
-    });
-
-    it('preserves an explicit recipient for atomic quotes', async () => {
-      expect(
-        await resolveQuoteRecipient({
-          messenger: buildMessenger(),
-          request: {
-            atomic: true,
-            from: PAYER_MOCK,
-            recipient: OVERRIDE_RECIPIENT_MOCK,
-          } as never,
-          transaction: TRANSACTION_MOCK,
-        }),
-      ).toBe(OVERRIDE_RECIPIENT_MOCK);
-    });
   });
 
   describe('submitSecondLeg', () => {
