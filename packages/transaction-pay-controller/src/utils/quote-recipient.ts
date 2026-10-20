@@ -5,72 +5,62 @@ import type {
   QuoteRequest,
   TransactionPayControllerMessenger,
 } from '../types.js';
-import { resolveNonAtomicRecipient } from './second-leg.js';
+import { getPostQuotePaymentOverrideData } from './post-quote-payment-override.js';
 
 /**
  * Resolve the quote recipient used by both Relay and Server.
  *
- * This is the single recipient decision point for quote construction:
- * non-atomic override recipient first, then any explicit request recipient,
- * then either the second-leg payer override or the transaction sender.
+ * Non-atomic execution must be funded on its execution account. Ordinary
+ * post-quote withdrawals pay the selected receiving account in `request.from`.
+ * Deposits default to the original transaction's execution account.
  *
  * @param options - Recipient resolution options.
+ * @param options.deferredExecution - Whether calls will run after quote settlement.
  * @param options.messenger - Controller messenger.
  * @param options.request - Quote request.
- * @param options.secondLeg - Whether this quote is for the second leg.
  * @param options.transaction - Original transaction metadata.
  * @returns The recipient to use for the quote body.
  */
 export async function resolveQuoteRecipient({
+  deferredExecution = false,
   messenger,
   request,
-  secondLeg = false,
   transaction,
 }: {
+  deferredExecution?: boolean;
   messenger: TransactionPayControllerMessenger;
   request: QuoteRequest;
-  secondLeg?: boolean;
   transaction: TransactionMeta;
 }): Promise<Hex> {
-  const nonAtomicRecipient = await resolveNonAtomicRecipient(
-    transaction,
-    request,
-    messenger,
-  );
+  const executionAccount = transaction.txParams.from as Hex;
+  const requiresExecution = request.atomic === false || deferredExecution;
 
-  if (nonAtomicRecipient) {
-    return nonAtomicRecipient;
+  if (requiresExecution && request.isPostQuote) {
+    // The client identifies the account executing target-side override calls.
+    const { recipient } = await getPostQuotePaymentOverrideData({
+      messenger,
+      transaction,
+    });
+
+    return recipient;
+  }
+
+  if (requiresExecution) {
+    // Fund the original execution account before submitting its second leg.
+    return executionAccount;
   }
 
   if (request.recipient) {
+    // Preserve an explicit payout recipient once second-leg funding is handled.
     return request.recipient;
   }
 
-  return resolveFallbackRecipient({ request, secondLeg, transaction });
-}
-
-/**
- * Resolve the fallback recipient when no explicit recipient is available.
- *
- * First-leg quotes settle on the transaction sender, while second-leg quotes
- * settle on the payer that will submit the follow-up transaction.
- */
-function resolveFallbackRecipient({
-  request,
-  secondLeg,
-  transaction,
-}: {
-  request: QuoteRequest;
-  secondLeg: boolean;
-  transaction: TransactionMeta;
-}): Hex {
-  if (secondLeg) {
-    return (
-      (request.from as Hex | undefined) ?? (transaction.txParams.from as Hex)
-    );
+  if (request.isPostQuote) {
+    // Ordinary withdrawals pay the selected receiving account, which can differ
+    // from the account executing the source withdrawal.
+    return request.from;
   }
 
-  return (
-    (transaction.txParams.from as Hex | undefined) ?? (request.from as Hex)
-  );
+  // Deposits default to the execution account, which can differ from the payer.
+  return executionAccount;
 }

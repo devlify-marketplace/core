@@ -24,6 +24,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bump `@metamask/network-controller` from `^37.0.1` to `^37.1.0` ([#10864](https://github.com/MetaMask/core/pull/10864))
 - Bump `@metamask/assets-controller` from `^19.0.0` to `^19.1.0` ([#10876](https://github.com/MetaMask/core/pull/10876))
 
+### Fixed
+
+- Preserve receiving and execution accounts across Relay and Server quotes ([#10887](https://github.com/MetaMask/core/pull/10887))
+  - Keep ordinary Money Account withdrawals directed to the selected receiving account and retain settlement recipients for non-atomic execution.
+  - Share deposit and withdrawal recipient defaults across strategies, re-quoting deferred Server execution when its funding account differs from the payout recipient.
+  - Reject post-quote payment overrides without a funding recipient.
+  - Run the target-side payment override after a non-atomic HyperCore withdrawal settles.
+
 ## [30.1.0]
 
 ### Added

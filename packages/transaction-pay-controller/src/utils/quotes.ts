@@ -404,7 +404,7 @@ function getSourceAmounts(
  *
  * @param request - Request parameters.
  * @param request.atomic - Whether the target transaction is executed atomically with the Relay quote.
- * @param request.from - Address from which the transaction is sent.
+ * @param request.from - Resolved quote sender/payer (`accountOverride ?? txParams.from`).
  * @param request.isHyperliquidSource - Whether the source of funds is HyperLiquid.
  * @param request.isMaxAmount - Whether the transaction is a maximum amount transaction.
  * @param request.isPolymarketDepositWallet - Whether the source of funds is a Polymarket deposit wallet.
@@ -500,7 +500,7 @@ function buildQuoteRequests({
  * @param request - Request parameters.
  * @param request.atomic - Whether the target transaction is executed atomically with the Relay quote.
  * @param request.destinationToken - Destination token (paymentToken in post-quote mode).
- * @param request.from - Address from which the transaction is sent.
+ * @param request.from - Resolved quote sender/payer (`accountOverride ?? txParams.from`).
  * @param request.isHyperliquidSource - Whether the source of funds is HyperLiquid.
  * @param request.isMaxAmount - Whether the transaction is a maximum amount transaction.
  * @param request.isPolymarketDepositWallet - Whether the source of funds is a Polymarket deposit wallet.

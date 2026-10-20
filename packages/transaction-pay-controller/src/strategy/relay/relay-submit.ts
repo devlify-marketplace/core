@@ -248,10 +248,11 @@ async function executeSingleQuote(
 
 /**
  * Runs the second leg of a non-atomic Relay quote on the target chain from
- * `quote.request.recipient`, where the funds settled (derived at quote time by
- * `resolveNonAtomicRecipient`). Post-quote flows build their calls via the
- * client `getPaymentOverrideData` callback; non-post-quote flows fall through
- * to the transaction's own nested calls re-encoded via `getAmountData`.
+ * `quote.request.recipient`, resolved and retained at quote time as the account
+ * where the funds settle.
+ * Post-quote flows build their calls via the client `getPaymentOverrideData`
+ * callback; non-post-quote flows fall through to the transaction's own nested
+ * calls re-encoded via `getAmountData`.
  *
  * @param options - Submit options.
  * @param options.completion - Outcome of `waitForRelayCompletion`.

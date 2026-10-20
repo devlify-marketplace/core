@@ -8,11 +8,7 @@ import type { Hex } from '@metamask/utils';
 import { createModuleLogger } from '@metamask/utils';
 import { BigNumber } from 'bignumber.js';
 
-import {
-  CHAIN_ID_HYPERCORE,
-  PaymentOverride,
-  TransactionPayStrategy,
-} from '../../constants.js';
+import { CHAIN_ID_HYPERCORE, TransactionPayStrategy } from '../../constants.js';
 import { projectLogger } from '../../logger.js';
 import type {
   PayStrategyGetQuotesRequest,
@@ -34,6 +30,7 @@ import {
   getPredictWithdrawFeeTokenAccount,
   getPredictWithdrawSafeAddress,
 } from '../../utils/polymarket/withdraw.js';
+import { processPostQuotePaymentOverride } from '../../utils/post-quote-payment-override.js';
 import { reservePostQuoteGas } from '../../utils/post-quote.js';
 import { estimateSourceGas } from '../../utils/quote-gas.js';
 import type { QuoteGasTransaction } from '../../utils/quote-gas.js';
@@ -45,7 +42,6 @@ import { normalizeServerPerpsRequest } from './perps.js';
 import { fetchServerQuote } from './server-api.js';
 import type {
   ServerQuote,
-  ServerQuotePayload,
   ServerQuoteRequest,
   ServerQuoteResult,
   ServerTransactionStep,
@@ -73,9 +69,9 @@ type FulfilledServerQuoteResult = ServerQuoteResult & {
  */
 type ServerQuoteRequestDraft = Omit<
   ServerQuoteRequest,
-  'amount' | 'tradeType'
+  'amount' | 'recipient' | 'tradeType'
 > &
-  Partial<Pick<ServerQuoteRequest, 'amount'>>;
+  Partial<Pick<ServerQuoteRequest, 'amount' | 'recipient'>>;
 
 type SourceNetworkCost = Pick<
   TransactionPayFees['sourceNetwork'],
@@ -165,14 +161,8 @@ async function fetchQuotes(
 ): Promise<TransactionPayQuote<ServerQuote>[]> {
   const { accountSupports7702, messenger, signal, transaction } = fullRequest;
 
-  const settledRequest = await resolveSettledRequest(
-    quoteRequest,
-    transaction,
-    messenger,
-  );
-
   const body = await buildServerQuoteRequest(
-    settledRequest,
+    quoteRequest,
     transaction,
     messenger,
     accountSupports7702,
@@ -196,51 +186,103 @@ async function fetchQuotes(
   );
 
   const normalized = await Promise.all(
-    fulfilledResults.map((result) =>
-      normalizeQuote(
+    fulfilledResults.map(async (result) => {
+      const resolved = await resolveDeferredQuote(
         result,
-        settledRequest,
-        messenger,
         body,
+        quoteRequest,
+        fullRequest,
+      );
+
+      if (!resolved) {
+        return;
+      }
+
+      return normalizeQuote(
+        resolved.result,
+        { ...quoteRequest, recipient: resolved.body.recipient },
+        messenger,
+        resolved.body,
         transaction,
         accountSupports7702,
-        isSecondLegRequired(body, settledRequest, transaction, result.quote),
-      ),
-    ),
+        isSecondLegRequired(
+          resolved.body,
+          quoteRequest,
+          transaction,
+          resolved.result.quote.callsDeferred,
+        ),
+      );
+    }),
   );
 
   log('Normalized quotes', normalized);
 
-  return normalized;
+  return normalized.filter((quote) => quote !== undefined);
 }
 
 /**
- * Carry the account the funds settle on as the request recipient.
+ * Re-quote a deferred provider if its funds would land on a different account
+ * from the one executing the second leg. Changing local metadata alone cannot
+ * change the destination encoded by the provider's quote.
  *
- * The second leg runs from `request.recipient`, which has to match where the
- * funds actually landed. Non-atomic flows settle on the account submitting the
- * second leg, such as the Money Account of a Predict withdraw. Otherwise the
- * quote settles on the executing account rather than the payer.
- *
- * @param quoteRequest - Quote request.
- * @param transaction - Original transaction meta.
- * @param messenger - Controller messenger.
- * @returns The request with the settlement recipient applied.
+ * @param result - Provider result.
+ * @param body - Request that produced the result.
+ * @param quoteRequest - Original quote request.
+ * @param fullRequest - Quote context.
+ * @returns The quote and its matching request, or undefined if re-quoting fails.
  */
-async function resolveSettledRequest(
+async function resolveDeferredQuote(
+  result: FulfilledServerQuoteResult,
+  body: ServerQuoteRequest,
   quoteRequest: QuoteRequest,
-  transaction: TransactionMeta,
-  messenger: TransactionPayControllerMessenger,
-): Promise<QuoteRequest> {
+  fullRequest: PayStrategyGetQuotesRequest,
+): Promise<
+  | {
+      body: ServerQuoteRequest;
+      result: FulfilledServerQuoteResult;
+    }
+  | undefined
+> {
+  if (!result.quote.callsDeferred) {
+    return { body, result };
+  }
+
+  const { messenger, signal, transaction } = fullRequest;
   const recipient = await resolveQuoteRecipient({
+    deferredExecution: true,
     messenger,
     request: quoteRequest,
-    secondLeg: quoteRequest.isPostQuote === true,
     transaction,
   });
 
+  if (recipient.toLowerCase() === body.recipient.toLowerCase()) {
+    return { body, result };
+  }
 
-  return { ...quoteRequest, recipient };
+  const deferredBody = { ...body, providers: [result.provider], recipient };
+
+  try {
+    const response = await fetchServerQuote(messenger, deferredBody, signal);
+    const deferredResult = response.results.find(
+      (candidate): candidate is FulfilledServerQuoteResult =>
+        candidate.provider === result.provider &&
+        isFulfilledResult(candidate) &&
+        candidate.quote.callsDeferred === true &&
+        isUsableDepositAddressQuote(deferredBody, candidate),
+    );
+
+    if (!deferredResult) {
+      return undefined;
+    }
+
+    return { body: deferredBody, result: deferredResult };
+  } catch (error) {
+    log('Error re-quoting deferred execution', {
+      error,
+      provider: result.provider,
+    });
+    return undefined;
+  }
 }
 
 async function buildServerQuoteRequest(
@@ -259,7 +301,6 @@ async function buildServerQuoteRequest(
     isMaxAmount,
     isPolymarketDepositWallet,
     isPostQuote,
-    paymentOverride,
     refundTo,
     sourceChainId,
     sourceTokenAddress,
@@ -272,7 +313,12 @@ async function buildServerQuoteRequest(
   const singleData = getSingleTransactionData(transaction);
   const isHypercore = targetChainId === CHAIN_ID_HYPERCORE;
   const isTokenTransfer =
-    !isHypercore && Boolean(singleData?.startsWith(TOKEN_TRANSFER_FOUR_BYTE));
+    !isHypercore &&
+    atomic !== false &&
+    !isPostQuote &&
+    !isPolymarketDepositWallet &&
+    !normalizedRequest.skipProcessTransactions &&
+    Boolean(singleData?.startsWith(TOKEN_TRANSFER_FOUR_BYTE));
 
   // `from` is the payer, which differs from the account the transaction's calls
   // run from when an account override (e.g. Money Account) is active.
@@ -281,7 +327,7 @@ async function buildServerQuoteRequest(
   const recipient =
     isTokenTransfer && singleData
       ? decodeTransferRecipient(singleData)
-      : (normalizedRequest.recipient ?? executionAccount);
+      : normalizedRequest.recipient;
 
   const isHypercoreSource = sourceChainId === CHAIN_ID_HYPERCORE;
 
@@ -323,17 +369,22 @@ async function buildServerQuoteRequest(
     // are no calls to embed.
     (isPolymarketDepositWallet ?? false);
 
-  if (
-    isPostQuote &&
-    atomic !== false &&
-    paymentOverride === PaymentOverride.MoneyAccount
-  ) {
-    await processMoneyAccountPostQuote(
-      transaction,
-      normalizedRequest,
-      body,
-      messenger,
-    );
+  const override = await processPostQuotePaymentOverride({
+    messenger,
+    request: normalizedRequest,
+    transaction,
+  });
+
+  if (override) {
+    body.amount = override.amount;
+    body.calls = override.calls;
+    body.recipient = override.recipient;
+
+    if (override.authorizationList?.length) {
+      body.authorizationList = normalizeAuthorizationList(
+        override.authorizationList,
+      );
+    }
   } else if (!skipDelegation) {
     const delegation = await messenger.call(
       'TransactionPayController:getDelegationTransaction',
@@ -354,10 +405,8 @@ async function buildServerQuoteRequest(
     ];
 
     // Prefer atomic execution, but let providers that cannot run the calls
-    // still quote for the funds. Only this path can fall back to a second leg:
-    // the calls run as the execution account, which is also the recipient, so
-    // we can submit them ourselves once the funds land. Post-quote flows submit
-    // their own calls and must not opt in.
+    // still quote for the funds. The response determines whether execution is
+    // deferred. Post-quote flows submit their own calls and must not opt in.
     if (
       canDeferCalls({
         accountSupports7702,
@@ -393,6 +442,18 @@ async function buildServerQuoteRequest(
     // A step that bundled its own calls has already pinned the amount those
     // calls consume, so it wins over the derived amount.
     amount: body.amount ?? pricing.amount,
+    recipient: await resolveQuoteRecipient({
+      // Only calls already known to need a second leg affect the first request.
+      // Provider-confirmed deferral is handled after receiving its quote.
+      deferredExecution: isSecondLegRequired(
+        body,
+        normalizedRequest,
+        transaction,
+      ),
+      messenger,
+      request: { ...normalizedRequest, recipient: body.recipient },
+      transaction,
+    }),
     tradeType: pricing.tradeType,
   };
 }
@@ -477,60 +538,6 @@ function normalizeAuthorizationList(
   }));
 }
 
-async function processMoneyAccountPostQuote(
-  transaction: TransactionMeta,
-  request: QuoteRequest,
-  body: ServerQuoteRequestDraft,
-  messenger: TransactionPayControllerMessenger,
-): Promise<void> {
-  const { transactionData: transactionDataList } = messenger.call(
-    'TransactionPayController:getState',
-  );
-
-  const transactionData = transactionDataList[transaction.id];
-  const amountHuman = transactionData?.tokens?.[0]?.amountHuman ?? '0';
-
-  const {
-    calls: overrideCalls,
-    recipient,
-    authorizationList,
-  } = await messenger.call('TransactionPayController:getPaymentOverrideData', {
-    amount: amountHuman,
-    transaction,
-    transactionData,
-  });
-
-  if (!overrideCalls.length) {
-    log('No payment override calls for money account post-quote');
-    return;
-  }
-
-  const fundingRecipient = recipient ?? request.from;
-  const rawAmount = transactionData?.tokens?.[0]?.amountRaw ?? '0';
-
-  // The bundled calls transfer exactly this amount, so pin it rather than
-  // letting the amount be derived from the request.
-  body.amount = rawAmount;
-
-  // Settle directly on the Money Account. The deposit calls are delegated from
-  // the Money Account, so the funds have to be there before they run.
-  body.recipient = fundingRecipient;
-
-  body.calls = overrideCalls.map((call) => ({
-    data: call.data as Hex,
-    to: call.to as Hex,
-    value: call.value ?? '0x0',
-  }));
-
-  if (authorizationList?.length) {
-    body.authorizationList = normalizeAuthorizationList(authorizationList);
-  }
-
-  log('Added money account post-quote calls to server quote body', {
-    callCount: overrideCalls.length,
-  });
-}
-
 function shouldRequestQuote(quoteRequest: QuoteRequest): boolean {
   return (
     quoteRequest.targetAmountMinimum !== '0' ||
@@ -557,28 +564,25 @@ function shouldRequestQuote(quoteRequest: QuoteRequest): boolean {
  * @param body - The built server quote request.
  * @param quoteRequest - The originating quote request.
  * @param transaction - Original transaction meta.
- * @param quote - The provider's quote payload.
+ * @param callsDeferred - Whether the provider will leave embedded calls to us.
  * @returns `true` when a second leg is required.
  */
 function isSecondLegRequired(
-  body: ServerQuoteRequest,
+  body: ServerQuoteRequestDraft,
   quoteRequest: QuoteRequest,
   transaction: TransactionMeta,
-  quote: ServerQuotePayload,
+  callsDeferred = false,
 ): boolean {
   // Embedded calls are executed by the provider as part of the quote, unless
   // it quoted for the funds alone and told us to run the calls ourselves.
-  if (body.calls?.length && !quote.callsDeferred) {
+  if (body.calls?.length && !callsDeferred) {
     return false;
   }
 
   // HyperCore settles off-chain, so there is no target-chain transfer to read
   // a settled amount from. Checks the built body rather than the original
   // request, since perps deposits are only rewritten to HyperCore there.
-  if (
-    body.target.chainId === HYPERCORE_CHAIN_ID_NUMBER ||
-    body.source.chainId === HYPERCORE_CHAIN_ID_NUMBER
-  ) {
+  if (body.target.chainId === HYPERCORE_CHAIN_ID_NUMBER) {
     return false;
   }
 
@@ -587,6 +591,10 @@ function isSecondLegRequired(
   // left to run once the funds settle.
   if (quoteRequest.isPostQuote) {
     return quoteRequest.atomic === false;
+  }
+
+  if (body.source.chainId === HYPERCORE_CHAIN_ID_NUMBER) {
+    return false;
   }
 
   // No calls to run. Plain funding transfers and empty calldata are already

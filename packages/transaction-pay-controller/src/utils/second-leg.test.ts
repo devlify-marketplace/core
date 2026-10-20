@@ -7,7 +7,7 @@ import type { TransactionPayControllerMessenger } from '../types.js';
 import { withChompRecovery } from './chomp.js';
 import { getNetworkClientId } from './provider.js';
 import { resolveQuoteRecipient } from './quote-recipient.js';
-import { resolveNonAtomicRecipient, submitSecondLeg } from './second-leg.js';
+import { submitSecondLeg } from './second-leg.js';
 import {
   collectTransactionIds,
   getTransaction,
@@ -119,93 +119,6 @@ describe('second-leg', () => {
     waitForTransactionConfirmedMock.mockResolvedValue();
   });
 
-  describe('resolveNonAtomicRecipient', () => {
-    it('returns undefined for atomic flows', async () => {
-      expect(
-        await resolveNonAtomicRecipient(
-          TRANSACTION_MOCK,
-          { atomic: true, from: PAYER_MOCK } as never,
-          buildMessenger(),
-        ),
-      ).toBeUndefined();
-    });
-
-    it('returns undefined when the request does not specify atomicity', async () => {
-      expect(
-        await resolveNonAtomicRecipient(
-          TRANSACTION_MOCK,
-          { from: PAYER_MOCK } as never,
-          buildMessenger(),
-        ),
-      ).toBeUndefined();
-    });
-
-    it('settles on the transaction account rather than the payer for non-post-quote flows', async () => {
-      expect(
-        await resolveNonAtomicRecipient(
-          TRANSACTION_MOCK,
-          { atomic: false, from: PAYER_MOCK } as never,
-          buildMessenger(),
-        ),
-      ).toBe(FROM_MOCK);
-    });
-
-    it('asks the client for the recipient on post-quote flows', async () => {
-      const callMock = jest.fn((action: string) => {
-        if (action === 'TransactionPayController:getState') {
-          return {
-            transactionData: {
-              [TRANSACTION_ID_MOCK]: { tokens: [{ amountHuman: '1.5' }] },
-            },
-          };
-        }
-
-        if (action === 'TransactionPayController:getPaymentOverrideData') {
-          return Promise.resolve({ recipient: OVERRIDE_RECIPIENT_MOCK });
-        }
-
-        throw new Error(`Unexpected action: ${action}`);
-      });
-
-      const result = await resolveNonAtomicRecipient(
-        TRANSACTION_MOCK,
-        { atomic: false, from: PAYER_MOCK, isPostQuote: true } as never,
-        buildMessenger(callMock),
-      );
-
-      expect(result).toBe(OVERRIDE_RECIPIENT_MOCK);
-      expect(callMock).toHaveBeenCalledWith(
-        'TransactionPayController:getPaymentOverrideData',
-        expect.objectContaining({ amount: '1.5' }),
-      );
-    });
-
-    it('defaults the post-quote amount to zero when no token amount is known', async () => {
-      const callMock = jest.fn((action: string) => {
-        if (action === 'TransactionPayController:getState') {
-          return { transactionData: {} };
-        }
-
-        if (action === 'TransactionPayController:getPaymentOverrideData') {
-          return Promise.resolve({ recipient: OVERRIDE_RECIPIENT_MOCK });
-        }
-
-        throw new Error(`Unexpected action: ${action}`);
-      });
-
-      await resolveNonAtomicRecipient(
-        TRANSACTION_MOCK,
-        { atomic: false, from: PAYER_MOCK, isPostQuote: true } as never,
-        buildMessenger(callMock),
-      );
-
-      expect(callMock).toHaveBeenCalledWith(
-        'TransactionPayController:getPaymentOverrideData',
-        expect.objectContaining({ amount: '0' }),
-      );
-    });
-  });
-
   describe('resolveQuoteRecipient', () => {
     it('prefers the non-atomic recipient when available', async () => {
       const callMock = jest.fn((action: string) => {
@@ -224,16 +137,20 @@ describe('second-leg', () => {
         throw new Error(`Unexpected action: ${action}`);
       });
 
-      await expect(
-        resolveQuoteRecipient({
+      expect(
+        await resolveQuoteRecipient({
           messenger: buildMessenger(callMock),
-          request: { atomic: false, from: PAYER_MOCK, isPostQuote: true } as never,
+          request: {
+            atomic: false,
+            from: PAYER_MOCK,
+            isPostQuote: true,
+          } as never,
           transaction: TRANSACTION_MOCK,
         }),
-      ).resolves.toBe(OVERRIDE_RECIPIENT_MOCK);
+      ).toBe(OVERRIDE_RECIPIENT_MOCK);
     });
 
-    it('falls back to the explicit request recipient when non-atomic resolution is unavailable', async () => {
+    it('rejects a missing override recipient even when the request has a recipient', async () => {
       const callMock = jest.fn((action: string) => {
         if (action === 'TransactionPayController:getState') {
           return { transactionData: {} };
@@ -257,10 +174,23 @@ describe('second-leg', () => {
           } as never,
           transaction: TRANSACTION_MOCK,
         }),
-      ).resolves.toBe(OVERRIDE_RECIPIENT_MOCK);
+      ).rejects.toThrow('Missing post-quote payment override recipient');
     });
 
-    it('falls back to the transaction sender when secondLeg is false and no request recipient is available', async () => {
+    it('defaults atomic deposits to the original execution account', async () => {
+      const callMock = jest.fn();
+
+      expect(
+        await resolveQuoteRecipient({
+          messenger: buildMessenger(callMock),
+          request: { atomic: true, from: PAYER_MOCK } as never,
+          transaction: TRANSACTION_MOCK,
+        }),
+      ).toBe(FROM_MOCK);
+      expect(callMock).not.toHaveBeenCalled();
+    });
+
+    it('rejects a missing override recipient instead of paying the transaction sender', async () => {
       const callMock = jest.fn((action: string) => {
         if (action === 'TransactionPayController:getState') {
           return { transactionData: {} };
@@ -276,34 +206,60 @@ describe('second-leg', () => {
       await expect(
         resolveQuoteRecipient({
           messenger: buildMessenger(callMock),
-          request: { atomic: false, from: PAYER_MOCK, isPostQuote: true } as never,
+          request: {
+            atomic: false,
+            from: PAYER_MOCK,
+            isPostQuote: true,
+          } as never,
           transaction: TRANSACTION_MOCK,
         }),
-      ).resolves.toBe(FROM_MOCK);
+      ).rejects.toThrow('Missing post-quote payment override recipient');
     });
 
-    it('falls back to the payer when secondLeg is true and no request recipient is available', async () => {
-      const callMock = jest.fn((action: string) => {
-        if (action === 'TransactionPayController:getState') {
-          return { transactionData: {} };
-        }
+    it('preserves the selected receiving account for ordinary post-quote withdrawals', async () => {
+      const callMock = jest.fn();
 
-        if (action === 'TransactionPayController:getPaymentOverrideData') {
-          return Promise.resolve({ recipient: undefined });
-        }
-
-        throw new Error(`Unexpected action: ${action}`);
-      });
-
-      await expect(
-        resolveQuoteRecipient({
+      expect(
+        await resolveQuoteRecipient({
           messenger: buildMessenger(callMock),
-          request: { atomic: false, from: PAYER_MOCK, isPostQuote: true } as never,
-          secondLeg: true,
+          request: { from: PAYER_MOCK, isPostQuote: true } as never,
           transaction: TRANSACTION_MOCK,
         }),
-      ).resolves.toBe(PAYER_MOCK);
+      ).toBe(PAYER_MOCK);
+      expect(callMock).not.toHaveBeenCalled();
     });
+
+    it('funds the original execution account before a non-atomic second leg', async () => {
+      expect(
+        await resolveQuoteRecipient({
+          messenger: buildMessenger(),
+          request: {
+            atomic: false,
+            from: PAYER_MOCK,
+            recipient: OVERRIDE_RECIPIENT_MOCK,
+          } as never,
+          transaction: TRANSACTION_MOCK,
+        }),
+      ).toBe(FROM_MOCK);
+    });
+
+    it.each([false, true])(
+      'resolves provider-confirmed deferred execution (%s) without a caller-selected default',
+      async (deferredExecution) => {
+        expect(
+          await resolveQuoteRecipient({
+            deferredExecution,
+            messenger: buildMessenger(),
+            request: {
+              atomic: true,
+              from: PAYER_MOCK,
+              recipient: OVERRIDE_RECIPIENT_MOCK,
+            } as never,
+            transaction: TRANSACTION_MOCK,
+          }),
+        ).toBe(deferredExecution ? FROM_MOCK : OVERRIDE_RECIPIENT_MOCK);
+      },
+    );
   });
 
   describe('submitSecondLeg', () => {

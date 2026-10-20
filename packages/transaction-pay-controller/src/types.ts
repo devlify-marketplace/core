@@ -86,7 +86,7 @@ export type TransactionPayControllerGetStateAction = ControllerGetStateAction<
 export type TransactionConfig = {
   /**
    * Optional address to override the default account used by the transaction.
-   * When `isPostQuote` is true, used as the recipient of the MM Pay transfer.
+   * For ordinary post-quote withdrawals, selects the receiving account.
    * When `isPostQuote` is false, it provides the funds and pays for gas.
    */
   accountOverride?: Hex;
@@ -162,7 +162,7 @@ export type GetPaymentOverrideDataResponse = {
   /** Batch transaction params to prepend to the submit batch. */
   calls: BatchTransactionParams[];
 
-  /** Optional recipient address for the funding token transfer. */
+  /** Funding account. Required for post-quote overrides; optional for pre-quote calls. */
   recipient?: Hex;
 
   /** Optional EIP-7702 authorization list from delegation. */
@@ -316,7 +316,7 @@ export type TransactionPayFiatOptions = {
 export type TransactionData = {
   /**
    * Optional address to override the default account used by the transaction.
-   * When `isPostQuote` is true, used as the recipient of the MM Pay transfer.
+   * For ordinary post-quote withdrawals, selects the receiving account.
    * When `isPostQuote` is false, it provides the funds and pays for gas.
    */
   accountOverride?: Hex;
@@ -551,12 +551,12 @@ export type FiatRates = {
 /** Request for a quote to retrieve a required token. */
 export type QuoteRequest = {
   /**
-   * Whether the target transaction is executed atomically with the Relay
-   * quote. See {@link TransactionConfig.atomic}.
+   * Whether the target transaction (or `paymentOverride` batch) is executed
+   * atomically with the Relay quote. See {@link TransactionConfig.atomic}.
    */
   atomic?: boolean;
 
-  /** Address of the user's account. */
+  /** Resolved quote sender/payer and default recipient for ordinary withdrawals. */
   from: Hex;
 
   /** Whether the transaction is a maximum amount transaction. */
@@ -577,7 +577,7 @@ export type QuoteRequest = {
   /** Overrides the payment source for the transaction. */
   paymentOverride?: PaymentOverride;
 
-  /** Optional recipient address for Relay requests. When set, overrides the default `from` address. */
+  /** Quote payout recipient, also retained as the execution account for a non-atomic second leg. */
   recipient?: Hex;
 
   /**
