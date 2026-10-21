@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Cache successful `KycService.fetchIdosEnclaveJwks` and `KycService.fetchIdosRelayJwks` responses in the service query cache for 24 hours ([#10894](https://github.com/MetaMask/core/pull/10894))
   - `KycService:invalidateQueries` drops the cached keys
+- Bump `@tanstack/query-core` from `^5.103.2` to `^5.104.4` ([#10740](https://github.com/MetaMask/core/pull/10740))
 
 ## [0.11.0]
 
