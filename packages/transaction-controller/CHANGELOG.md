@@ -17,6 +17,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bump `@metamask/core-backend` from `^12.1.0` to `^12.3.0` ([#10857](https://github.com/MetaMask/core/pull/10857), [#10876](https://github.com/MetaMask/core/pull/10876))
 - Bump `@metamask/base-controller` from `^10.0.0` to `^10.1.0` ([#10864](https://github.com/MetaMask/core/pull/10864))
 - Bump `@metamask/network-controller` from `^37.0.1` to `^37.1.0` ([#10864](https://github.com/MetaMask/core/pull/10864))
+- Bump `@ethersproject/abi` from `^5.7.0` to `^5.8.0` ([#10516](https://github.com/MetaMask/core/pull/10516))
+- Bump `@ethersproject/contracts` from `^5.7.0` to `^5.8.0` ([#10516](https://github.com/MetaMask/core/pull/10516))
 
 ### Fixed
 
