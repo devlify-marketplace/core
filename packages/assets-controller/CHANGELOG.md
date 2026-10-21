@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Bump `@metamask/account-tree-controller` from `^11.0.1` to `^11.1.1` ([#10891](https://github.com/MetaMask/core/pull/10891), [#10925](https://github.com/MetaMask/core/pull/10925))
 - Bump `@metamask/assets-controllers` from `^112.1.2` to `^112.1.3` ([#10925](https://github.com/MetaMask/core/pull/10925))
+- Bump `bignumber.js` from `^9.1.2` to `^9.3.1` ([#10529](https://github.com/MetaMask/core/pull/10529))
 
 ## [19.1.0]
 

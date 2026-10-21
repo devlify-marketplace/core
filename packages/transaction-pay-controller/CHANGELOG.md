@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Bump `@metamask/network-controller` from `^37.0.1` to `^37.1.0` ([#10864](https://github.com/MetaMask/core/pull/10864))
 - Bump `@metamask/assets-controller` from `^19.0.0` to `^19.1.0` ([#10876](https://github.com/MetaMask/core/pull/10876))
 - Bump `@metamask/ramps-controller` from `^27.0.1` to `^27.0.2` ([#10925](https://github.com/MetaMask/core/pull/10925))
+- Bump `bignumber.js` from `^9.1.2` to `^9.3.1` ([#10529](https://github.com/MetaMask/core/pull/10529))
 
 ## [30.1.0]
 
