@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Cache successful `KycService.fetchIdosEnclaveJwks` and `KycService.fetchIdosRelayJwks` responses in the service query cache for 24 hours ([#10894](https://github.com/MetaMask/core/pull/10894))
   - `KycService:invalidateQueries` drops the cached keys
+- Bump `@noble/hashes` from `^1.8.0` to `^2.4.0` ([#10594](https://github.com/MetaMask/core/pull/10594))
 
 ## [0.11.0]
 
