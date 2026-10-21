@@ -28,6 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Restrict grant retrieval to explicitly scoped previews and submissions. Calls without provider scope retain VIP/season, subscription, and default resolution without invoking the optional grant dependency; scoped calls are provider-agnostic and reject mismatched candidates. ([#10664](https://github.com/MetaMask/core/pull/10664))
 - Bump `@metamask/base-controller` from `^10.0.0` to `^10.1.0` ([#10864](https://github.com/MetaMask/core/pull/10864))
 - Bump `@metamask/subscription-controller` from `^14.0.0` to `^14.0.1` ([#10896](https://github.com/MetaMask/core/pull/10896))
+- Bump `uuid` from `^11.1.1` to `^14.0.0` ([#10941](https://github.com/MetaMask/core/pull/10941))
 
 ### Fixed
 
