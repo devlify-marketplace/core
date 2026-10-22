@@ -161,6 +161,34 @@ describe('toWei', () => {
     expect(() => toWei('8723.98234.98234', 'ether')).toThrow(Error);
   });
 
+  it.each(['0.5', '.5', '-.5', '1.5', '-1.5'])(
+    'should reject fractional wei string %s',
+    (value) => {
+      expect(() => toWei(value, 'wei')).toThrow('too many decimal places');
+    },
+  );
+
+  it.each([0.5, -0.5, 1.5, -1.5])(
+    'should reject fractional wei number %s',
+    (value) => {
+      expect(() => toWei(value, 'wei')).toThrow('too many decimal places');
+    },
+  );
+
+  it.each([
+    ['0', 0],
+    ['1', 1],
+    ['-1', -1],
+  ])(
+    'should preserve integer wei string %s and number %s',
+    (stringValue, numberValue) => {
+      const expected = BigInt(stringValue);
+
+      expect(toWei(stringValue, 'wei')).toBe(expected);
+      expect(toWei(numberValue, 'wei')).toBe(expected);
+    },
+  );
+
   it('should handle BigInt inputs with fast path optimizations', () => {
     // Fast path: BigInt + 'wei' unit (should return input directly)
     expect(toWei(BigInt(123), 'wei')).toBe(BigInt(123));

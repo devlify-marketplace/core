@@ -68,7 +68,7 @@ const unitMapBigInt = Object.fromEntries(
 ) as Record<EthereumUnit, bigint>;
 
 const unitLengths = Object.fromEntries(
-  Object.entries(unitMap).map(([key, value]) => [key, value.length - 1 || 1]),
+  Object.entries(unitMap).map(([key, value]) => [key, value.length - 1]),
 ) as Record<EthereumUnit, number>;
 
 const NUMBER_REGEX = /^-?[0-9.]+$/u;
@@ -272,7 +272,7 @@ export function toWei(
   if (fraction === undefined || fraction === '') {
     fraction = '0';
   }
-  if (fraction.length > baseLength) {
+  if (fraction !== '0' && fraction.length > baseLength) {
     throw new Error(
       `While converting number ${etherInput} to wei, too many decimal places`,
     );
